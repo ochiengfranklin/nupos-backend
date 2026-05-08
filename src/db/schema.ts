@@ -1,0 +1,275 @@
+import {
+    pgTable,
+    uuid,
+    varchar,
+    text,
+    boolean,
+    integer,
+    numeric,
+    timestamp,
+    pgEnum,
+    uniqueIndex,
+    index,
+} from 'drizzle-orm/pg-core'
+import { relations } from 'drizzle-orm'
+
+
+// Enums are defined at the database level — PostgreSQL enforces valid values
+
+export const userRoleEnum = pgEnum('user_role', [
+    'OWNER',
+    'MANAGER',
+    'CASHIER',
+    'STOREKEEPER',
+])
+
+export const saleStatusEnum = pgEnum('sale_status', [
+    'COMPLETED',
+    'REFUNDED',
+    'VOIDED',
+])
+
+export const paymentMethodEnum = pgEnum('payment_method', [
+    'CASH',
+    'MPESA',
+    'CARD',
+    'BANK_TRANSFER',
+])
+
+export const paymentStatusEnum = pgEnum('payment_status', [
+    'PENDING',
+    'COMPLETED',
+    'FAILED',
+])
+
+export const inventoryMovementTypeEnum = pgEnum('inventory_movement_type', [
+    'SALE',         // stock reduced by a sale
+    'RESTOCK',      // stock added manually or via purchase order
+    'ADJUSTMENT',   // manual correction
+    'RETURN',       // customer returned an item
+    'DAMAGE',       // stock written off as damaged
+])
+
+
+// One row = one business. The anchor of the entire multi-tenant system.
+
+export const shops = pgTable('shops', {
+    id:         uuid('id').primaryKey().defaultRandom(),
+    name:       varchar('name', { length: 255 }).notNull(),
+    slug:       varchar('slug', { length: 100 }).notNull().unique(),
+    phone:      varchar('phone', { length: 20 }),
+    email:      varchar('email', { length: 255 }),
+    address:    text('address'),
+    currency:   varchar('currency', { length: 10 }).notNull().default('KES'),
+    isActive:   boolean('is_active').notNull().default(true),
+    createdAt:  timestamp('created_at').notNull().defaultNow(),
+    updatedAt:  timestamp('updated_at').notNull().defaultNow(),
+})
+
+
+// Employees of a shop. Role controls what they can access.
+
+export const users = pgTable('users', {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    shopId:       uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    name:         varchar('name', { length: 255 }).notNull(),
+    email:        varchar('email', { length: 255 }).notNull(),
+    passwordHash: varchar('password_hash', { length: 255 }).notNull(),
+    role:         userRoleEnum('role').notNull().default('CASHIER'),
+    isActive:     boolean('is_active').notNull().default(true),
+    createdAt:    timestamp('created_at').notNull().defaultNow(),
+    updatedAt:    timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+    // A user's email must be unique within a shop
+    // Two different shops CAN have users with the same email
+    uniqueIndex('users_shop_email_idx').on(table.shopId, table.email),
+    index('users_shop_id_idx').on(table.shopId),
+])
+
+// ─── Categories ───────────────────────────────────────────────────────────────
+
+export const categories = pgTable('categories', {
+    id:          uuid('id').primaryKey().defaultRandom(),
+    shopId:      uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    name:        varchar('name', { length: 255 }).notNull(),
+    description: text('description'),
+    isActive:    boolean('is_active').notNull().default(true),
+    createdAt:   timestamp('created_at').notNull().defaultNow(),
+    updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+    index('categories_shop_id_idx').on(table.shopId),
+])
+
+
+
+export const products = pgTable('products', {
+    id:                uuid('id').primaryKey().defaultRandom(),
+    shopId:            uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    categoryId:        uuid('category_id').references(() => categories.id, { onDelete: 'set null' }),
+    name:              varchar('name', { length: 255 }).notNull(),
+    description:       text('description'),
+    sku:               varchar('sku', { length: 100 }),
+    barcode:           varchar('barcode', { length: 100 }),
+    price:             numeric('price', { precision: 12, scale: 2 }).notNull(),
+    costPrice:         numeric('cost_price', { precision: 12, scale: 2 }).notNull().default('0'),
+    stockQuantity:     integer('stock_quantity').notNull().default(0),
+    lowStockThreshold: integer('low_stock_threshold').notNull().default(5),
+    isActive:          boolean('is_active').notNull().default(true),
+    createdAt:         timestamp('created_at').notNull().defaultNow(),
+    updatedAt:         timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+    // SKU must be unique per shop — two shops can have same SKU but one shop cannot
+    uniqueIndex('products_shop_sku_idx').on(table.shopId, table.sku),
+    index('products_shop_id_idx').on(table.shopId),
+    index('products_category_id_idx').on(table.categoryId),
+])
+
+
+
+export const customers = pgTable('customers', {
+    id:          uuid('id').primaryKey().defaultRandom(),
+    shopId:      uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    name:        varchar('name', { length: 255 }).notNull(),
+    phone:       varchar('phone', { length: 20 }),
+    email:       varchar('email', { length: 255 }),
+    totalSpent:  numeric('total_spent', { precision: 14, scale: 2 }).notNull().default('0'),
+    isActive:    boolean('is_active').notNull().default(true),
+    createdAt:   timestamp('created_at').notNull().defaultNow(),
+    updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+    index('customers_shop_id_idx').on(table.shopId),
+    index('customers_phone_idx').on(table.phone),
+])
+
+
+// The header record. Individual items live in sale_items.
+
+export const sales = pgTable('sales', {
+    id:             uuid('id').primaryKey().defaultRandom(),
+    shopId:         uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    cashierId:      uuid('cashier_id').notNull().references(() => users.id),
+    customerId:     uuid('customer_id').references(() => customers.id, { onDelete: 'set null' }),
+    receiptNumber:  varchar('receipt_number', { length: 50 }).notNull().unique(),
+    subtotal:       numeric('subtotal', { precision: 14, scale: 2 }).notNull(),
+    taxAmount:      numeric('tax_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    discountAmount: numeric('discount_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    totalAmount:    numeric('total_amount', { precision: 14, scale: 2 }).notNull(),
+    status:         saleStatusEnum('status').notNull().default('COMPLETED'),
+    paymentMethod:  paymentMethodEnum('payment_method').notNull(),
+    notes:          text('notes'),
+    createdAt:      timestamp('created_at').notNull().defaultNow(),
+    updatedAt:      timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+    index('sales_shop_id_idx').on(table.shopId),
+    index('sales_cashier_id_idx').on(table.cashierId),
+    index('sales_created_at_idx').on(table.createdAt),
+    index('sales_shop_created_idx').on(table.shopId, table.createdAt),
+])
+
+
+// One row per product line in a sale.
+
+export const saleItems = pgTable('sale_items', {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    saleId:    uuid('sale_id').notNull().references(() => sales.id, { onDelete: 'cascade' }),
+    productId: uuid('product_id').notNull().references(() => products.id),
+    quantity:  integer('quantity').notNull(),
+    unitPrice: numeric('unit_price', { precision: 12, scale: 2 }).notNull(),
+    subtotal:  numeric('subtotal', { precision: 14, scale: 2 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+    index('sale_items_sale_id_idx').on(table.saleId),
+    index('sale_items_product_id_idx').on(table.productId),
+])
+
+
+
+export const payments = pgTable('payments', {
+    id:        uuid('id').primaryKey().defaultRandom(),
+    saleId:    uuid('sale_id').notNull().references(() => sales.id, { onDelete: 'cascade' }),
+    method:    paymentMethodEnum('method').notNull(),
+    amount:    numeric('amount', { precision: 14, scale: 2 }).notNull(),
+    reference: varchar('reference', { length: 255 }), // M-Pesa transaction code etc.
+    status:    paymentStatusEnum('status').notNull().default('COMPLETED'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+    index('payments_sale_id_idx').on(table.saleId),
+])
+
+
+// Audit trail. Every stock change is recorded here permanently.
+
+export const inventoryMovements = pgTable('inventory_movements', {
+    id:           uuid('id').primaryKey().defaultRandom(),
+    shopId:       uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    productId:    uuid('product_id').notNull().references(() => products.id),
+    userId:       uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    type:         inventoryMovementTypeEnum('type').notNull(),
+    quantity:     integer('quantity').notNull(), // positive = added, negative = removed
+    stockBefore:  integer('stock_before').notNull(),
+    stockAfter:   integer('stock_after').notNull(),
+    reason:       text('reason'),
+    referenceId:  uuid('reference_id'), // sale_id if type = SALE
+    createdAt:    timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+    index('inv_movements_shop_id_idx').on(table.shopId),
+    index('inv_movements_product_id_idx').on(table.productId),
+    index('inv_movements_created_at_idx').on(table.createdAt),
+])
+
+
+// These tell Drizzle how tables connect — enables typed joins
+
+export const shopsRelations = relations(shops, ({ many }) => ({
+    users:               many(users),
+    categories:          many(categories),
+    products:            many(products),
+    sales:               many(sales),
+    customers:           many(customers),
+    inventoryMovements:  many(inventoryMovements),
+}))
+
+export const usersRelations = relations(users, ({ one, many }) => ({
+    shop:  one(shops, { fields: [users.shopId], references: [shops.id] }),
+    sales: many(sales),
+}))
+
+export const categoriesRelations = relations(categories, ({ one, many }) => ({
+    shop:     one(shops, { fields: [categories.shopId], references: [shops.id] }),
+    products: many(products),
+}))
+
+export const productsRelations = relations(products, ({ one, many }) => ({
+    shop:               one(shops,      { fields: [products.shopId],      references: [shops.id] }),
+    category:           one(categories, { fields: [products.categoryId],  references: [categories.id] }),
+    saleItems:          many(saleItems),
+    inventoryMovements: many(inventoryMovements),
+}))
+
+export const customersRelations = relations(customers, ({ one, many }) => ({
+    shop:  one(shops, { fields: [customers.shopId], references: [shops.id] }),
+    sales: many(sales),
+}))
+
+export const salesRelations = relations(sales, ({ one, many }) => ({
+    shop:      one(shops,     { fields: [sales.shopId],     references: [shops.id] }),
+    cashier:   one(users,     { fields: [sales.cashierId],  references: [users.id] }),
+    customer:  one(customers, { fields: [sales.customerId], references: [customers.id] }),
+    saleItems: many(saleItems),
+    payments:  many(payments),
+}))
+
+export const saleItemsRelations = relations(saleItems, ({ one }) => ({
+    sale:    one(sales,    { fields: [saleItems.saleId],    references: [sales.id] }),
+    product: one(products, { fields: [saleItems.productId], references: [products.id] }),
+}))
+
+export const paymentsRelations = relations(payments, ({ one }) => ({
+    sale: one(sales, { fields: [payments.saleId], references: [sales.id] }),
+}))
+
+export const inventoryMovementsRelations = relations(inventoryMovements, ({ one }) => ({
+    shop:    one(shops,    { fields: [inventoryMovements.shopId],    references: [shops.id] }),
+    product: one(products, { fields: [inventoryMovements.productId], references: [products.id] }),
+    user:    one(users,    { fields: [inventoryMovements.userId],    references: [users.id] }),
+}))
