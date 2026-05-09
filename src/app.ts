@@ -12,6 +12,7 @@ import { HTTP_STATUS } from './constants'
 import authRoutes from './routes/auth.routes'
 import categoryRoutes from "./routes/category.routes";
 import productRoutes from "./routes/product.routes";
+import saleRoutes from "./routes/sale.routes";
 
 const app: Application = express()
 
@@ -71,6 +72,7 @@ app.get('/health', (_req: Request, res: Response) => {
 app.use('/api/auth', authRoutes)
 app.use('/api/categories', categoryRoutes)
 app.use('/api/products',   productRoutes)
+app.use('/api/sales', saleRoutes)
 
 // 404 handler
 app.use((req: Request, res: Response) => {

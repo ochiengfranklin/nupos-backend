@@ -21,32 +21,49 @@ export const errorHandler = (
     err: Error,
     req: Request,
     res: Response,
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     next: NextFunction
 ): Response => {
-    console.error(`[ERROR] ${req.method} ${req.path} →`, err.message);
-    if (config.isDev) console.error(err.stack);
+    console.error(`[ERROR] ${req.method} ${req.path} →`, err);
 
-    // Prisma: record not found
-    if ((err as any).code === 'P2025') {
-        return sendError(res, { message: 'Record not found', statusCode: HTTP_STATUS.NOT_FOUND });
+    // Postgres: duplicate key
+    if ((err as any).cause?.code === '23505') {
+        return sendError(res, {
+            message: 'A record with this value already exists',
+            statusCode: HTTP_STATUS.CONFLICT,
+        })
     }
 
-    // Prisma: unique constraint violation
-    if ((err as any).code === 'P2002') {
-        const field = (err as any).meta?.target?.[0] || 'field';
-        return sendError(res, { message: `${field} already exists`, statusCode: HTTP_STATUS.CONFLICT });
+    // Postgres: foreign key violation
+    if ((err as any).cause?.code === '23503') {
+        return sendError(res, {
+            message: 'Referenced record does not exist',
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+        })
+    }
+
+    // Postgres: not null violation
+    if ((err as any).cause?.code === '23502') {
+        return sendError(res, {
+            message: 'Required field is missing',
+            statusCode: HTTP_STATUS.BAD_REQUEST,
+        })
     }
 
     // JWT errors
     if (err.name === 'TokenExpiredError') {
-        return sendError(res, { message: 'Token expired, please login again', statusCode: HTTP_STATUS.UNAUTHORIZED });
+        return sendError(res, {
+            message: 'Token expired, please login again',
+            statusCode: HTTP_STATUS.UNAUTHORIZED,
+        })
     }
     if (err.name === 'JsonWebTokenError') {
-        return sendError(res, { message: 'Invalid token', statusCode: HTTP_STATUS.UNAUTHORIZED });
+        return sendError(res, {
+            message: 'Invalid token',
+            statusCode: HTTP_STATUS.UNAUTHORIZED,
+        })
     }
 
-    // Zod 4 validation errors
+    // Zod validation errors
     if (err instanceof ZodError) {
         return sendError(res, {
             message: 'Validation failed',
@@ -55,17 +72,20 @@ export const errorHandler = (
                 message: issue.message,
             })),
             statusCode: HTTP_STATUS.UNPROCESSABLE,
-        });
+        })
     }
 
     // Known operational error
     if (err instanceof AppError) {
-        return sendError(res, { message: err.message, statusCode: err.statusCode });
+        return sendError(res, {
+            message: err.message,
+            statusCode: err.statusCode,
+        })
     }
 
     // Unknown — never leak internals in production
     return sendError(res, {
         message: config.isProd ? 'Internal server error' : err.message,
         statusCode: HTTP_STATUS.INTERNAL_ERROR,
-    });
-};
+    })
+}
