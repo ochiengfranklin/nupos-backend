@@ -119,6 +119,12 @@ export class SaleService {
             )
             .returning()
 
+        // Attach product names to items
+        const itemsWithNames = insertedItems.map(item => ({
+            ...item,
+            name: saleItemsData.find(d => d.productId === item.productId)?.name || 'Product',
+        }))
+
         //  STEP 7: Deduct stock and log inventory movements
         for (const item of saleItemsData) {
             const stockBefore = item.stockQuantity
@@ -170,7 +176,7 @@ export class SaleService {
 
         return {
             sale,
-            items: insertedItems,
+            items: itemsWithNames,
             receiptNumber,
             totalAmount,
             subtotal,
