@@ -13,7 +13,6 @@ import {
 } from 'drizzle-orm/pg-core'
 import { relations } from 'drizzle-orm'
 
-
 // Enums are defined at the database level — PostgreSQL enforces valid values
 
 export const userRoleEnum = pgEnum('user_role', [
@@ -48,6 +47,13 @@ export const inventoryMovementTypeEnum = pgEnum('inventory_movement_type', [
     'ADJUSTMENT',   // manual correction
     'RETURN',       // customer returned an item
     'DAMAGE',       // stock written off as damaged
+])
+
+export const purchaseOrderStatusEnum = pgEnum('purchase_order_status', [
+    'DRAFT',
+    'ORDERED',
+    'RECEIVED',
+    'CANCELLED',
 ])
 
 
@@ -86,7 +92,7 @@ export const users = pgTable('users', {
     index('users_shop_id_idx').on(table.shopId),
 ])
 
-// ─── Categories ───────────────────────────────────────────────────────────────
+//Categories
 
 export const categories = pgTable('categories', {
     id:          uuid('id').primaryKey().defaultRandom(),
@@ -139,6 +145,60 @@ export const customers = pgTable('customers', {
 }, (table) => [
     index('customers_shop_id_idx').on(table.shopId),
     index('customers_phone_idx').on(table.phone),
+])
+
+
+//  Suppliers
+export const suppliers = pgTable('suppliers', {
+    id:          uuid('id').primaryKey().defaultRandom(),
+    shopId:      uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    name:        varchar('name', { length: 255 }).notNull(),
+    contact:     varchar('contact', { length: 100 }),
+    phone:       varchar('phone', { length: 20 }),
+    email:       varchar('email', { length: 255 }),
+    address:     text('address'),
+    notes:       text('notes'),
+    isActive:    boolean('is_active').notNull().default(true),
+    createdAt:   timestamp('created_at').notNull().defaultNow(),
+    updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+    index('suppliers_shop_id_idx').on(table.shopId),
+])
+
+
+// Purchase orders
+export const purchaseOrders = pgTable('purchase_orders', {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    shopId:        uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    supplierId:    uuid('supplier_id').references(() => suppliers.id, { onDelete: 'set null' }),
+    orderNumber:   varchar('order_number', { length: 50 }).notNull().unique(),
+    status:        purchaseOrderStatusEnum('status').notNull().default('DRAFT'),
+    totalAmount:   numeric('total_amount', { precision: 14, scale: 2 }).notNull().default('0'),
+    notes:         text('notes'),
+    orderedAt:     timestamp('ordered_at'),
+    receivedAt:    timestamp('received_at'),
+    createdBy:     uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+    updatedAt:     timestamp('updated_at').notNull().defaultNow(),
+}, (table) => [
+    index('po_shop_id_idx').on(table.shopId),
+    index('po_supplier_id_idx').on(table.supplierId),
+])
+
+
+// Purchase order items
+export const purchaseOrderItems = pgTable('purchase_order_items', {
+    id:                uuid('id').primaryKey().defaultRandom(),
+    purchaseOrderId:   uuid('purchase_order_id').notNull().references(() => purchaseOrders.id, { onDelete: 'cascade' }),
+    productId:         uuid('product_id').notNull().references(() => products.id),
+    quantity:          integer('quantity').notNull(),
+    unitCost:          numeric('unit_cost', { precision: 12, scale: 2 }).notNull(),
+    totalCost:         numeric('total_cost', { precision: 14, scale: 2 }).notNull(),
+    receivedQty:       integer('received_qty').notNull().default(0),
+    createdAt:         timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+    index('poi_purchase_order_id_idx').on(table.purchaseOrderId),
+    index('poi_product_id_idx').on(table.productId),
 ])
 
 
@@ -227,11 +287,14 @@ export const shopsRelations = relations(shops, ({ many }) => ({
     sales:               many(sales),
     customers:           many(customers),
     inventoryMovements:  many(inventoryMovements),
+    suppliers:           many(suppliers),
+    purchaseOrders:      many(purchaseOrders),
 }))
 
 export const usersRelations = relations(users, ({ one, many }) => ({
-    shop:  one(shops, { fields: [users.shopId], references: [shops.id] }),
-    sales: many(sales),
+    shop:           one(shops, { fields: [users.shopId], references: [shops.id] }),
+    sales:          many(sales),
+    purchaseOrders: many(purchaseOrders),
 }))
 
 export const categoriesRelations = relations(categories, ({ one, many }) => ({
@@ -244,6 +307,7 @@ export const productsRelations = relations(products, ({ one, many }) => ({
     category:           one(categories, { fields: [products.categoryId],  references: [categories.id] }),
     saleItems:          many(saleItems),
     inventoryMovements: many(inventoryMovements),
+    purchaseOrderItems: many(purchaseOrderItems),
 }))
 
 export const customersRelations = relations(customers, ({ one, many }) => ({
@@ -272,4 +336,23 @@ export const inventoryMovementsRelations = relations(inventoryMovements, ({ one 
     shop:    one(shops,    { fields: [inventoryMovements.shopId],    references: [shops.id] }),
     product: one(products, { fields: [inventoryMovements.productId], references: [products.id] }),
     user:    one(users,    { fields: [inventoryMovements.userId],    references: [users.id] }),
+}))
+
+// New Relations
+
+export const suppliersRelations = relations(suppliers, ({ one, many }) => ({
+    shop:           one(shops,          { fields: [suppliers.shopId],    references: [shops.id] }),
+    purchaseOrders: many(purchaseOrders),
+}))
+
+export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many }) => ({
+    shop:     one(shops,     { fields: [purchaseOrders.shopId],     references: [shops.id] }),
+    supplier: one(suppliers, { fields: [purchaseOrders.supplierId], references: [suppliers.id] }),
+    items:    many(purchaseOrderItems),
+    creator:  one(users,     { fields: [purchaseOrders.createdBy],  references: [users.id] }),
+}))
+
+export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
+    purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.purchaseOrderId], references: [purchaseOrders.id] }),
+    product:       one(products,       { fields: [purchaseOrderItems.productId],       references: [products.id] }),
 }))
