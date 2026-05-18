@@ -56,6 +56,12 @@ export const purchaseOrderStatusEnum = pgEnum('purchase_order_status', [
     'CANCELLED',
 ])
 
+export const loyaltyTransactionTypeEnum = pgEnum('loyalty_transaction_type', [
+    'EARNED',
+    'REDEEMED',
+    'ADJUSTED',
+    'EXPIRED',
+])
 
 // One row = one business. The anchor of the entire multi-tenant system.
 
@@ -133,15 +139,16 @@ export const products = pgTable('products', {
 
 
 export const customers = pgTable('customers', {
-    id:          uuid('id').primaryKey().defaultRandom(),
-    shopId:      uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
-    name:        varchar('name', { length: 255 }).notNull(),
-    phone:       varchar('phone', { length: 20 }),
-    email:       varchar('email', { length: 255 }),
-    totalSpent:  numeric('total_spent', { precision: 14, scale: 2 }).notNull().default('0'),
-    isActive:    boolean('is_active').notNull().default(true),
-    createdAt:   timestamp('created_at').notNull().defaultNow(),
-    updatedAt:   timestamp('updated_at').notNull().defaultNow(),
+    id:            uuid('id').primaryKey().defaultRandom(),
+    shopId:        uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    name:          varchar('name', { length: 255 }).notNull(),
+    phone:         varchar('phone', { length: 20 }),
+    email:         varchar('email', { length: 255 }),
+    totalSpent:    numeric('total_spent', { precision: 14, scale: 2 }).notNull().default('0'),
+    loyaltyPoints: integer('loyalty_points').notNull().default(0),
+    isActive:      boolean('is_active').notNull().default(true),
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+    updatedAt:     timestamp('updated_at').notNull().defaultNow(),
 }, (table) => [
     index('customers_shop_id_idx').on(table.shopId),
     index('customers_phone_idx').on(table.phone),
@@ -277,10 +284,40 @@ export const inventoryMovements = pgTable('inventory_movements', {
     index('inv_movements_created_at_idx').on(table.createdAt),
 ])
 
+// Loyalty transactions
+
+export const loyaltyTransactions = pgTable('loyalty_transactions', {
+    id:            uuid('id').primaryKey().defaultRandom(),
+    shopId:        uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
+    customerId:    uuid('customer_id').notNull().references(() => customers.id, { onDelete: 'cascade' }),
+    saleId:        uuid('sale_id').references(() => sales.id, { onDelete: 'set null' }),
+    type:          loyaltyTransactionTypeEnum('type').notNull(),
+    points:        integer('points').notNull(),
+    balanceBefore: integer('balance_before').notNull(),
+    balanceAfter:  integer('balance_after').notNull(),
+    note:          text('note'),
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+}, (table) => [
+    index('loyalty_customer_idx').on(table.customerId),
+    index('loyalty_shop_idx').on(table.shopId),
+])
+
+// Shop loyalty settings
+export const loyaltySettings = pgTable('loyalty_settings', {
+    id:                   uuid('id').primaryKey().defaultRandom(),
+    shopId:               uuid('shop_id').notNull().unique().references(() => shops.id, { onDelete: 'cascade' }),
+    isEnabled:            boolean('is_enabled').notNull().default(true),
+    pointsPerHundred:     integer('points_per_hundred').notNull().default(10),
+    pointsRedemptionRate: integer('points_redemption_rate').notNull().default(1),
+    minimumRedemption:    integer('minimum_redemption').notNull().default(100),
+    createdAt:            timestamp('created_at').notNull().defaultNow(),
+    updatedAt:            timestamp('updated_at').notNull().defaultNow(),
+})
+
 
 // These tell Drizzle how tables connect — enables typed joins
 
-export const shopsRelations = relations(shops, ({ many }) => ({
+export const shopsRelations = relations(shops, ({ many, one }) => ({
     users:               many(users),
     categories:          many(categories),
     products:            many(products),
@@ -289,6 +326,8 @@ export const shopsRelations = relations(shops, ({ many }) => ({
     inventoryMovements:  many(inventoryMovements),
     suppliers:           many(suppliers),
     purchaseOrders:      many(purchaseOrders),
+    loyaltyTransactions: many(loyaltyTransactions),
+    loyaltySettings:     one(loyaltySettings),
 }))
 
 export const usersRelations = relations(users, ({ one, many }) => ({
@@ -311,16 +350,18 @@ export const productsRelations = relations(products, ({ one, many }) => ({
 }))
 
 export const customersRelations = relations(customers, ({ one, many }) => ({
-    shop:  one(shops, { fields: [customers.shopId], references: [shops.id] }),
-    sales: many(sales),
+    shop:                one(shops, { fields: [customers.shopId], references: [shops.id] }),
+    sales:               many(sales),
+    loyaltyTransactions: many(loyaltyTransactions),
 }))
 
 export const salesRelations = relations(sales, ({ one, many }) => ({
-    shop:      one(shops,     { fields: [sales.shopId],     references: [shops.id] }),
-    cashier:   one(users,     { fields: [sales.cashierId],  references: [users.id] }),
-    customer:  one(customers, { fields: [sales.customerId], references: [customers.id] }),
-    saleItems: many(saleItems),
-    payments:  many(payments),
+    shop:                one(shops,     { fields: [sales.shopId],     references: [shops.id] }),
+    cashier:             one(users,     { fields: [sales.cashierId],  references: [users.id] }),
+    customer:            one(customers, { fields: [sales.customerId], references: [customers.id] }),
+    saleItems:           many(saleItems),
+    payments:            many(payments),
+    loyaltyTransactions: many(loyaltyTransactions),
 }))
 
 export const saleItemsRelations = relations(saleItems, ({ one }) => ({
@@ -338,8 +379,6 @@ export const inventoryMovementsRelations = relations(inventoryMovements, ({ one 
     user:    one(users,    { fields: [inventoryMovements.userId],    references: [users.id] }),
 }))
 
-// New Relations
-
 export const suppliersRelations = relations(suppliers, ({ one, many }) => ({
     shop:           one(shops,          { fields: [suppliers.shopId],    references: [shops.id] }),
     purchaseOrders: many(purchaseOrders),
@@ -355,4 +394,14 @@ export const purchaseOrdersRelations = relations(purchaseOrders, ({ one, many })
 export const purchaseOrderItemsRelations = relations(purchaseOrderItems, ({ one }) => ({
     purchaseOrder: one(purchaseOrders, { fields: [purchaseOrderItems.purchaseOrderId], references: [purchaseOrders.id] }),
     product:       one(products,       { fields: [purchaseOrderItems.productId],       references: [products.id] }),
+}))
+
+export const loyaltyTransactionsRelations = relations(loyaltyTransactions, ({ one }) => ({
+    shop:     one(shops,     { fields: [loyaltyTransactions.shopId],     references: [shops.id] }),
+    customer: one(customers, { fields: [loyaltyTransactions.customerId], references: [customers.id] }),
+    sale:     one(sales,     { fields: [loyaltyTransactions.saleId],     references: [sales.id] }),
+}))
+
+export const loyaltySettingsRelations = relations(loyaltySettings, ({ one }) => ({
+    shop: one(shops, { fields: [loyaltySettings.shopId], references: [shops.id] }),
 }))

@@ -13,11 +13,12 @@ import { HTTP_STATUS } from '../constants'
 import { CreateSaleInput, SaleQueryInput } from '../validators/sale.validator'
 import { generateReceiptNumber } from '../utils/receipt'
 import { db } from '../db'
+import { loyaltyService } from './loyalty.service'
 
 export class SaleService {
 
     // Create sale
-    async createSale(shopId: string, cashierId: string, input: CreateSaleInput) {
+    async createSale(shopId: string, cashierId: string, input: CreateSaleInput & { loyaltyPointsUsed?: number }) {
 
         // STEP 1: Fetch all products in one query
         const foundProducts = await db
@@ -74,7 +75,18 @@ export class SaleService {
             }
         })
 
-        const discountAmount = input.discountAmount || 0
+        let discountAmount = input.discountAmount || 0
+        let loyaltyDiscount = 0
+
+        if (input.loyaltyPointsUsed && input.customerId) {
+            const redemption = await loyaltyService.redeemPoints(
+                shopId, input.customerId, input.loyaltyPointsUsed
+            )
+            loyaltyDiscount = redemption.discount
+            // Add to discount amount
+            discountAmount = discountAmount + loyaltyDiscount
+        }
+
         const taxAmount      = 0
         const totalAmount    = Math.max(0, subtotal - discountAmount + taxAmount)
 
@@ -172,6 +184,18 @@ export class SaleService {
                     updatedAt:  new Date(),
                 })
                 .where(eq(customers.id, input.customerId))
+
+            // After sale is complete, award loyalty points if customer exists
+            try {
+                await loyaltyService.awardPoints(
+                    shopId,
+                    input.customerId,
+                    sale.id,
+                    parseFloat(String(totalAmount)),
+                )
+            } catch {
+                // Points awarding failure should not fail the sale
+            }
         }
 
         return {

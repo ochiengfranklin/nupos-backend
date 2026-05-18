@@ -18,6 +18,7 @@ import userRoutes from "./routes/user.routes";
 import customerRoutes from "./routes/customer.routes";
 import inventoryRoutes from "./routes/inventory.routes";
 import supplierRoutes from "./routes/supplier.routes";
+import loyaltyRoutes from "./routes/loyalty.routes";
 
 const app: Application = express()
 
@@ -83,6 +84,7 @@ app.use('/api/users', userRoutes)
 app.use('/api/customers', customerRoutes)
 app.use('/api/inventory', inventoryRoutes)
 app.use('/api/suppliers', supplierRoutes)
+app.use('/api/loyalty', loyaltyRoutes)
 
 // 404 handler
 app.use((req: Request, res: Response) => {
