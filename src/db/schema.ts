@@ -66,18 +66,23 @@ export const loyaltyTransactionTypeEnum = pgEnum('loyalty_transaction_type', [
 // One row = one business. The anchor of the entire multi-tenant system.
 
 export const shops = pgTable('shops', {
-    id:         uuid('id').primaryKey().defaultRandom(),
-    name:       varchar('name', { length: 255 }).notNull(),
-    slug:       varchar('slug', { length: 100 }).notNull().unique(),
-    phone:      varchar('phone', { length: 20 }),
-    email:      varchar('email', { length: 255 }),
-    address:    text('address'),
-    currency:   varchar('currency', { length: 10 }).notNull().default('KES'),
-    isActive:   boolean('is_active').notNull().default(true),
-    createdAt:  timestamp('created_at').notNull().defaultNow(),
-    updatedAt:  timestamp('updated_at').notNull().defaultNow(),
+    id:            uuid('id').primaryKey().defaultRandom(),
+    name:          varchar('name', { length: 255 }).notNull(),
+    slug:          varchar('slug', { length: 100 }).notNull().unique(),
+    phone:         varchar('phone', { length: 20 }),
+    email:         varchar('email', { length: 255 }),
+    address:       text('address'),
+    city:          varchar('city', { length: 100 }),
+    country:       varchar('country', { length: 100 }).default('Kenya'),
+    currency:      varchar('currency', { length: 10 }).default('KES'),
+    tillNumber:    varchar('till_number', { length: 20 }),
+    taxRate:       numeric('tax_rate', { precision: 5, scale: 2 }).default('0'),
+    receiptFooter: text('receipt_footer'),
+    logoUrl:       text('logo_url'),
+    isActive:      boolean('is_active').notNull().default(true),
+    createdAt:     timestamp('created_at').notNull().defaultNow(),
+    updatedAt:     timestamp('updated_at').notNull().defaultNow(),
 })
-
 
 // Employees of a shop. Role controls what they can access.
 
@@ -112,8 +117,6 @@ export const categories = pgTable('categories', {
     index('categories_shop_id_idx').on(table.shopId),
 ])
 
-
-
 export const products = pgTable('products', {
     id:                uuid('id').primaryKey().defaultRandom(),
     shopId:            uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
@@ -136,8 +139,6 @@ export const products = pgTable('products', {
     index('products_category_id_idx').on(table.categoryId),
 ])
 
-
-
 export const customers = pgTable('customers', {
     id:            uuid('id').primaryKey().defaultRandom(),
     shopId:        uuid('shop_id').notNull().references(() => shops.id, { onDelete: 'cascade' }),
@@ -153,7 +154,6 @@ export const customers = pgTable('customers', {
     index('customers_shop_id_idx').on(table.shopId),
     index('customers_phone_idx').on(table.phone),
 ])
-
 
 //  Suppliers
 export const suppliers = pgTable('suppliers', {
@@ -171,7 +171,6 @@ export const suppliers = pgTable('suppliers', {
 }, (table) => [
     index('suppliers_shop_id_idx').on(table.shopId),
 ])
-
 
 // Purchase orders
 export const purchaseOrders = pgTable('purchase_orders', {
@@ -192,7 +191,6 @@ export const purchaseOrders = pgTable('purchase_orders', {
     index('po_supplier_id_idx').on(table.supplierId),
 ])
 
-
 // Purchase order items
 export const purchaseOrderItems = pgTable('purchase_order_items', {
     id:                uuid('id').primaryKey().defaultRandom(),
@@ -207,7 +205,6 @@ export const purchaseOrderItems = pgTable('purchase_order_items', {
     index('poi_purchase_order_id_idx').on(table.purchaseOrderId),
     index('poi_product_id_idx').on(table.productId),
 ])
-
 
 // The header record. Individual items live in sale_items.
 
@@ -233,7 +230,6 @@ export const sales = pgTable('sales', {
     index('sales_shop_created_idx').on(table.shopId, table.createdAt),
 ])
 
-
 // One row per product line in a sale.
 
 export const saleItems = pgTable('sale_items', {
@@ -249,8 +245,6 @@ export const saleItems = pgTable('sale_items', {
     index('sale_items_product_id_idx').on(table.productId),
 ])
 
-
-
 export const payments = pgTable('payments', {
     id:        uuid('id').primaryKey().defaultRandom(),
     saleId:    uuid('sale_id').notNull().references(() => sales.id, { onDelete: 'cascade' }),
@@ -262,7 +256,6 @@ export const payments = pgTable('payments', {
 }, (table) => [
     index('payments_sale_id_idx').on(table.saleId),
 ])
-
 
 // Audit trail. Every stock change is recorded here permanently.
 
@@ -313,7 +306,6 @@ export const loyaltySettings = pgTable('loyalty_settings', {
     createdAt:            timestamp('created_at').notNull().defaultNow(),
     updatedAt:            timestamp('updated_at').notNull().defaultNow(),
 })
-
 
 // These tell Drizzle how tables connect — enables typed joins
 

@@ -9,7 +9,7 @@ import { RegisterInput, LoginInput } from '../validators/auth.validator'
 
 export class AuthService {
 
-     // register
+    // register
     // Creates a shop and its first owner user atomically
     async register(input: RegisterInput) {
         // 1. Generate a URL-safe slug from shop name
@@ -75,14 +75,25 @@ export class AuthService {
                 role:  newUser.role,
             },
             shop: {
-                id:   newShop.id,
-                name: newShop.name,
-                slug: newShop.slug,
+                id:            newShop.id,
+                name:          newShop.name,
+                slug:          newShop.slug,
+                phone:         newShop.phone,
+                email:         newShop.email,
+                address:       newShop.address,
+                city:          newShop.city,
+                country:       newShop.country,
+                currency:      newShop.currency,
+                tillNumber:    newShop.tillNumber,
+                taxRate:       newShop.taxRate,
+                receiptFooter: newShop.receiptFooter,
+                logoUrl:       newShop.logoUrl,
+                isActive:      newShop.isActive,
             },
         }
     }
 
-     // login
+    // login
     async login(input: LoginInput) {
         // 1. Find shop by slug
         const [shop] = await db
@@ -138,9 +149,20 @@ export class AuthService {
                 role:  user.role,
             },
             shop: {
-                id:   shop.id,
-                name: shop.name,
-                slug: shop.slug,
+                id:            shop.id,
+                name:          shop.name,
+                slug:          shop.slug,
+                phone:         shop.phone,
+                email:         shop.email,
+                address:       shop.address,
+                city:          shop.city,
+                country:       shop.country,
+                currency:      shop.currency,
+                tillNumber:    shop.tillNumber,
+                taxRate:       shop.taxRate,
+                receiptFooter: shop.receiptFooter,
+                logoUrl:       shop.logoUrl,
+                isActive:      shop.isActive,
             },
         }
     }
@@ -184,7 +206,7 @@ export class AuthService {
         }
     }
 
-     // get current user
+    // get current user
     async getMe(userId: string, shopId: string) {
         const [user] = await db
             .select({
